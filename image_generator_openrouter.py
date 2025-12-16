@@ -126,7 +126,7 @@ def _extract_data_urls_from_message(message):
             image_url = getattr(img, "image_url", None)
             url = getattr(image_url, "url", None) if image_url else None
 
-        if url and isinstance(url, str) and url.startswith("data:image/"):
+        if url and isinstance(url, str) and url.startswith("data:image/") and "base64," in url:
             urls.append(url)
 
     return urls
