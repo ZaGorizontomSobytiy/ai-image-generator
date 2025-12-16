@@ -169,10 +169,10 @@ def serve_image(provider, filename):
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🎨 AI Image Generator Web App")
+    print("AI Image Generator Web App")
     print("=" * 60)
-    print("\n✓ Сервер запущен!")
-    print("✓ Откройте: http://localhost:5000")
+    print("\nServer started!")
+    print("Open: http://localhost:5000")
     print("\n" + "=" * 60)
     
     app.run(debug=True, host='0.0.0.0', port=5000)

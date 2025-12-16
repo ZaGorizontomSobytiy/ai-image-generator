@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-CLI приложение для генерации изображений через OpenRouter (Gemini Flash Image)
+CLI приложение для генерации изображений через OpenRouter (Nano Banana Pro)
 С улучшением промптов через GigaChat
 """
 
 import os
 import sys
 import base64
+import requests
 from datetime import datetime
 from pathlib import Path
 from openai import OpenAI
@@ -50,7 +51,7 @@ def enhance_prompt_with_gigachat(simple_prompt, max_length=250):
     Returns:
         str: Улучшенный детализированный промпт
     """
-    print(f"\n🤖 GigaChat улучшает промпт...")
+    print(f"\nGigaChat улучшает промпт...")
     
     try:
         credentials = get_gigachat_credentials()
@@ -82,11 +83,11 @@ def enhance_prompt_with_gigachat(simple_prompt, max_length=250):
             if len(enhanced) > max_length:
                 enhanced = enhanced[:max_length].rsplit(' ', 1)[0] + "..."
             
-            print(f"✓ Промпт улучшен! (длина: {len(enhanced)} символов)")
+            print(f"Промпт улучшен! (длина: {len(enhanced)} символов)")
             return enhanced
             
     except Exception as e:
-        print(f"\n⚠️ Ошибка GigaChat: {str(e)}")
+        print(f"\n[!] Ошибка GigaChat: {str(e)}")
         print(f"Используем оригинальный промпт...")
         return simple_prompt
 
@@ -98,46 +99,65 @@ def create_output_directory():
     return output_dir
 
 
+def _extract_data_urls_from_message(message):
+    """
+    Возвращает список data URL картинок из assistant message.
+    Поддерживает структуру OpenRouter: message.images[*].image_url.url
+    """
+    urls = []
+
+    images = getattr(message, "images", None)
+    if not images:
+        try:
+            md = message.model_dump()  # pydantic v2
+        except Exception:
+            md = message if isinstance(message, dict) else None
+        if md and isinstance(md, dict):
+            images = md.get("images")
+
+    if not images:
+        return urls
+
+    for img in images:
+        # img может быть dict или объектом
+        if isinstance(img, dict):
+            url = (img.get("image_url") or {}).get("url")
+        else:
+            image_url = getattr(img, "image_url", None)
+            url = getattr(image_url, "url", None) if image_url else None
+
+        if url and isinstance(url, str) and url.startswith("data:image/"):
+            urls.append(url)
+
+    return urls
+
+
 def generate_image(client, prompt, output_dir):
-    """Генерирует изображение по промпту через OpenRouter и сохраняет его"""
+    """Генерирует изображение по промпту через OpenRouter (Nano Banana) и сохраняет его"""
     print(f"\nГенерация изображения по промпту: '{prompt}'...")
     
     try:
+        # Используем Gemini 2.5 Flash Image (Nano Banana)
         res = client.chat.completions.create(
-            model="google/gemini-2.5-flash-image-preview",
+            model="google/gemini-2.5-flash-image",
             messages=[{"role": "user", "content": prompt}],
             modalities=["image", "text"]
         )
         
-        # Получаем изображение из ответа
         message = res.choices[0].message
+        data_urls = _extract_data_urls_from_message(message)
+
+        if not data_urls:
+            try:
+                debug = message.model_dump()
+            except Exception:
+                debug = {"message_str": str(message)}
+            raise ValueError(f"Не удалось найти images[].image_url.url в ответе. Debug: {debug}")
+
+        data_url = data_urls[0]
+        print(f"[OK] Изображение получено в base64 формате")
         
-        # Пробуем разные варианты структуры ответа
-        data_url = None
-        
-        # Вариант 1: images существует
-        if hasattr(message, 'images') and message.images:
-            image_data = message.images[0]
-            if isinstance(image_data, dict):
-                data_url = image_data.get("url") or image_data.get("imageUrl", {}).get("url")
-            else:
-                data_url = getattr(image_data, 'url', None)
-        
-        # Вариант 2: content содержит изображение
-        elif hasattr(message, 'content') and isinstance(message.content, list):
-            for item in message.content:
-                if isinstance(item, dict) and 'image_url' in item:
-                    data_url = item['image_url'].get('url')
-                    break
-        
-        # Вариант 3: content это строка с base64
-        elif hasattr(message, 'content') and isinstance(message.content, str):
-            if message.content.startswith('data:image'):
-                data_url = message.content
-        
-        if not data_url:
-            raise ValueError(f"Не удалось найти изображение в ответе. Структура: {dir(message)}")
-        
+        # Декодируем base64
         b64 = data_url.split("base64,", 1)[1]
         image_bytes = base64.b64decode(b64)
         
@@ -150,7 +170,7 @@ def generate_image(client, prompt, output_dir):
         with open(filepath, 'wb') as f:
             f.write(image_bytes)
         
-        print(f"\n✓ Изображение успешно сохранено: {filepath.absolute()}")
+        print(f"\n[OK] Изображение успешно сохранено: {filepath.absolute()}")
         return filepath
         
     except Exception as e:
@@ -161,7 +181,7 @@ def generate_image(client, prompt, output_dir):
 def main():
     """Основная функция CLI приложения"""
     print("=" * 60)
-    print("Генератор изображений через OpenRouter (Gemini Flash)")
+    print("Генератор изображений через OpenRouter (Nano Banana Pro)")
     print("=" * 60)
     
     load_environment()

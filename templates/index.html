@@ -210,6 +210,14 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="provider">🔌 Выберите API:</label>
+                    <select id="provider" name="provider">
+                        <option value="proxyapi">ProxyAPI (GPT Image)</option>
+                        <option value="openrouter">OpenRouter (Gemini 2.5 Flash Image)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
                     <label for="style">🎨 Выберите стиль:</label>
                     <select id="style" name="style">
                         {% for key, value in styles.items() %}
@@ -277,6 +285,9 @@
             generateBtn.disabled = true;
             
             try {
+                // Получить выбранный provider
+                const provider = document.getElementById('provider').value;
+                
                 // Запустить генерацию
                 const response = await fetch('/api/generate', {
                     method: 'POST',
@@ -286,7 +297,7 @@
                     body: JSON.stringify({
                         prompt: prompt,
                         style: style,
-                        provider: 'proxyapi'
+                        provider: provider
                     })
                 });
                 

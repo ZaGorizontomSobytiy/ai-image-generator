@@ -5,6 +5,7 @@
 
 import os
 import base64
+import requests
 from datetime import datetime
 from pathlib import Path
 from openai import OpenAI
@@ -73,9 +74,42 @@ def generate_image_proxyapi(prompt, output_dir=None):
     return filepath
 
 
+def _extract_data_urls_from_message(message):
+    """
+    Возвращает список data URL картинок из assistant message.
+    Поддерживает структуру OpenRouter: message.images[*].image_url.url
+    """
+    urls = []
+
+    images = getattr(message, "images", None)
+    if not images:
+        try:
+            md = message.model_dump()  # pydantic v2
+        except Exception:
+            md = message if isinstance(message, dict) else None
+        if md and isinstance(md, dict):
+            images = md.get("images")
+
+    if not images:
+        return urls
+
+    for img in images:
+        # img может быть dict или объектом
+        if isinstance(img, dict):
+            url = (img.get("image_url") or {}).get("url")
+        else:
+            image_url = getattr(img, "image_url", None)
+            url = getattr(image_url, "url", None) if image_url else None
+
+        if url and isinstance(url, str) and url.startswith("data:image/"):
+            urls.append(url)
+
+    return urls
+
+
 def generate_image_openrouter(prompt, output_dir=None):
     """
-    Генерирует изображение через OpenRouter
+    Генерирует изображение через OpenRouter (Nano Banana - Gemini 2.5 Flash Image)
     
     Args:
         prompt: Промпт для генерации
@@ -93,35 +127,26 @@ def generate_image_openrouter(prompt, output_dir=None):
         base_url="https://openrouter.ai/api/v1"
     )
     
+    # Используем Gemini 2.5 Flash Image (Nano Banana) для генерации
     res = client.chat.completions.create(
-        model="google/gemini-2.5-flash-image-preview",
+        model="google/gemini-2.5-flash-image",
         messages=[{"role": "user", "content": prompt}],
         modalities=["image", "text"]
     )
     
     message = res.choices[0].message
+    data_urls = _extract_data_urls_from_message(message)
+
+    if not data_urls:
+        try:
+            debug = message.model_dump()
+        except Exception:
+            debug = {"message_str": str(message)}
+        raise ValueError(f"Не удалось найти images[].image_url.url в ответе. Debug: {debug}")
+
+    data_url = data_urls[0]
     
-    # Пробуем разные варианты структуры ответа
-    data_url = None
-    
-    if hasattr(message, 'images') and message.images:
-        image_data = message.images[0]
-        if isinstance(image_data, dict):
-            data_url = image_data.get("url") or image_data.get("imageUrl", {}).get("url")
-        else:
-            data_url = getattr(image_data, 'url', None)
-    elif hasattr(message, 'content') and isinstance(message.content, list):
-        for item in message.content:
-            if isinstance(item, dict) and 'image_url' in item:
-                data_url = item['image_url'].get('url')
-                break
-    elif hasattr(message, 'content') and isinstance(message.content, str):
-        if message.content.startswith('data:image'):
-            data_url = message.content
-    
-    if not data_url:
-        raise ValueError(f"Не удалось найти изображение в ответе")
-    
+    # Декодируем base64
     b64 = data_url.split("base64,", 1)[1]
     image_bytes = base64.b64decode(b64)
     
